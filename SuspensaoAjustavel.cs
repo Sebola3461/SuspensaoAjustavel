@@ -3,7 +3,7 @@ using MelonLoader;
 using PBSLoaderCommonUtils;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(SuspensaoAjustavel.SuspensaoAjustavelMod), "SuspensaoAjustavel", "0.1.0", "nzrn")]
+[assembly: MelonInfo(typeof(SuspensaoAjustavel.SuspensaoAjustavelMod), "SuspensaoAjustavel", "0.2.0", "nzrn")]
 [assembly: MelonGame(null, "Proton Bus Simulator")]
 
 namespace SuspensaoAjustavel

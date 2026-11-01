@@ -31,11 +31,21 @@ namespace SuspensaoAjustavel
                 var l = bruta.Split('#')[0].Trim();
                 int i = l.IndexOf('=');
                 if (i <= 0) continue;
+                var chave = l.Substring(0, i).Trim().ToLowerInvariant();
                 if (!float.TryParse(l.Substring(i + 1).Trim(), NumberStyles.Float, Ci, out float v)) continue;
-                switch (l.Substring(0, i).Trim().ToLowerInvariant())
+                switch (chave)
                 {
-                    case "altura_dianteira_mm": a.AlturaDianteira = Limite(v, -100, 100) / 1000f; break;
-                    case "altura_traseira_mm": a.AlturaTraseira = Limite(v, -100, 100) / 1000f; break;
+                    // Formato novo: altura_eixo1_mm, altura_eixo2_mm, ... (dianteira para trás).
+                    case "altura_dianteira_mm": a.DefinirAltura(0, Limite(v, -100, 100) / 1000f); break;
+                    case "altura_traseira_mm": a.DefinirAltura(1, Limite(v, -100, 100) / 1000f); a.TraseiraAntiga = true; break;
+                    default:
+                        if (chave.StartsWith("altura_eixo") && chave.EndsWith("_mm"))
+                        {
+                            int n;
+                            if (int.TryParse(chave.Substring("altura_eixo".Length, chave.Length - "altura_eixo".Length - 3), out n) && n >= 1)
+                                a.DefinirAltura(n - 1, Limite(v, -100, 100) / 1000f);
+                        }
+                        break;
                     case "ajoelhar_mm": a.Ajoelhar = Limite(v, 10, 150) / 1000f; break;
                     case "elevar_mm": a.Elevar = Limite(v, 10, 150) / 1000f; break;
                     case "rigidez": a.Rigidez = Limite(v, 0.4f, 2.5f); break;
@@ -50,9 +60,9 @@ namespace SuspensaoAjustavel
             Directory.CreateDirectory(Pasta);
             var sb = new StringBuilder();
             sb.AppendLine("# Suspensão Ajustável - " + onibus);
-            sb.AppendLine("# alturas em mm (+ sobe); rigidez e amortecimento multiplicam os valores do ônibus");
-            sb.AppendLine("altura_dianteira_mm=" + (a.AlturaDianteira * 1000f).ToString("0.#", Ci));
-            sb.AppendLine("altura_traseira_mm=" + (a.AlturaTraseira * 1000f).ToString("0.#", Ci));
+            sb.AppendLine("# alturas por eixo (par de bolsas) em mm (+ sobe), da dianteira para trás; rigidez e amortecimento multiplicam os valores do ônibus");
+            for (int i = 0; i < a.Alturas.Length; i++)
+                sb.AppendLine($"altura_eixo{i + 1}_mm=" + (a.Alturas[i] * 1000f).ToString("0.#", Ci));
             sb.AppendLine("ajoelhar_mm=" + (a.Ajoelhar * 1000f).ToString("0.#", Ci));
             sb.AppendLine("elevar_mm=" + (a.Elevar * 1000f).ToString("0.#", Ci));
             sb.AppendLine("rigidez=" + a.Rigidez.ToString("0.###", Ci));

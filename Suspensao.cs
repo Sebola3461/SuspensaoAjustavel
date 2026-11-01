@@ -19,6 +19,7 @@ namespace SuspensaoAjustavel
         internal VPWheelCollider W;
         internal Rigidbody Rb;
         internal bool Dianteira;
+        internal int Eixo;                 // eixo (par de bolsas) ao qual a roda pertence, da frente para trás
         internal int Lado;                 // +1 direita, -1 esquerda (x local do corpo dela)
         internal float Z;                  // posição ao longo do ônibus, no corpo principal
         // Valores do ônibus. Se o jogo trocar o campo por conta própria (recarregar o veículo),
@@ -33,17 +34,45 @@ namespace SuspensaoAjustavel
         internal float Taxa;               // dH/dt do último passo (m/s)
     }
 
+    // Um eixo do ônibus: o par de bolsas (roda esquerda + direita) na mesma altura Z.
+    internal sealed class Eixo
+    {
+        internal readonly List<Roda> Rodas = new();
+        internal float Z;
+        internal bool Dianteira;
+    }
+
     // Ajustes salvos por ônibus.
     internal sealed class Ajustes
     {
-        internal float AlturaDianteira, AlturaTraseira;   // m, + sobe
+        internal float[] Alturas = new float[2];   // uma altura por eixo (m, + sobe), da dianteira para trás
+        internal bool TraseiraAntiga;              // arquivo do formato antigo: a altura traseira valia para todos os eixos de trás
         internal float Ajoelhar = 0.08f, Elevar = 0.06f;  // m
         internal float Rigidez = 1f, Amortecimento = 1f;  // fator sobre o valor do ônibus
+
+        internal float Altura(int eixo) => eixo >= 0 && eixo < Alturas.Length ? Alturas[eixo] : 0f;
+
+        internal void DefinirAltura(int eixo, float v)
+        {
+            if (eixo < 0) return;
+            if (eixo >= Alturas.Length) Array.Resize(ref Alturas, eixo + 1);
+            Alturas[eixo] = v;
+        }
+
+        // Ajusta o número de alturas ao número de eixos do ônibus (faltando, preenche com 0).
+        internal void Garantir(int eixos)
+        {
+            if (Alturas.Length == eixos) return;
+            var novo = new float[eixos];
+            Array.Copy(Alturas, novo, Math.Min(Alturas.Length, eixos));
+            Alturas = novo;
+        }
     }
 
     internal static class Suspensao
     {
         internal static readonly List<Roda> Rodas = new();
+        internal static readonly List<Eixo> Eixos = new();
         internal static Ajustes A = new();
         internal static string Onibus = "";
         internal static string Estado = "Nenhum ônibus";
@@ -77,7 +106,7 @@ namespace SuspensaoAjustavel
         {
             SalvarAgora();
             Restaurar();
-            Rodas.Clear(); _portas.Clear(); Visual.Mapa.Clear();
+            Rodas.Clear(); Eixos.Clear(); _portas.Clear(); Visual.Mapa.Clear();
             _ctrl = null; _ctrlPtr = IntPtr.Zero; _raiz = null; Corpo = null;
             Pronto = false; Pedido = Nivel.Normal; Automatico = false; _autoBloqueado = false;
             Estado = "Nenhum ônibus";
@@ -151,8 +180,20 @@ namespace SuspensaoAjustavel
                 Rodas.Add(r);
                 Visual.Mapa[w.Pointer] = r;
             }
-            float zMax = Rodas.Max(r => r.Z);
-            foreach (var r in Rodas) r.Dianteira = r.Z > zMax - 0.6f;
+            // Eixos: pares de bolsas agrupados pela posição Z (da frente para trás). Articulados e
+            // biarticulados ganham um ajuste por eixo em vez de só dianteira/traseira.
+            Eixos.Clear();
+            foreach (var r in Rodas.OrderByDescending(r => r.Z))
+            {
+                if (Eixos.Count == 0 || Mathf.Abs(Eixos[^1].Z - r.Z) > 0.3f)
+                    Eixos.Add(new Eixo { Z = r.Z });
+                var eixo = Eixos[^1];
+                eixo.Rodas.Add(r);
+                r.Eixo = Eixos.Count - 1;
+            }
+            for (int i = 0; i < Eixos.Count; i++) Eixos[i].Dianteira = i == 0;
+            foreach (var r in Rodas) r.Dianteira = r.Eixo == 0;
+            float zMax = Eixos.Count > 0 ? Eixos[0].Z : 0f;
 
             // Caixa da cabine a partir das rodas: largura das rodas + folga, do chão ao teto.
             float xMax = 0f, yMin = float.MaxValue, zMin = float.MaxValue;
@@ -167,9 +208,13 @@ namespace SuspensaoAjustavel
 
             Onibus = NomeDoOnibus();
             A = Salvos.Carregar(Onibus) ?? new Ajustes();
+            A.Garantir(Eixos.Count);
+            // Formato antigo (dianteira/traseira): a traseira valia para todos os eixos de trás, meio incluso.
+            if (A.TraseiraAntiga)
+                for (int i = 1; i < Eixos.Count; i++) A.DefinirAltura(i, A.Altura(1));
             Pronto = true;
             _restaurou = false;
-            Estado = $"{Rodas.Count} bolsas · {Rodas.Count(r => r.Dianteira)} na dianteira";
+            Estado = $"{Rodas.Count} bolsas · {Eixos.Count} eixos";
             Log.Msg($"Ônibus '{Onibus}': {Rodas.Count} rodas VPP, mola {Rodas[0].MolaOrig:0} N/m, amortecedor {Rodas[0].AmortOrig:0} N·s/m");
             Som.Montar(Corpo, _raiz, PosicaoSom());
         }
@@ -266,11 +311,11 @@ namespace SuspensaoAjustavel
 
         static float AlvoDe(Roda r)
         {
-            float h = r.Dianteira ? A.AlturaDianteira : A.AlturaTraseira;
+            float h = A.Altura(r.Eixo);
             switch (Pedido)
             {
                 case Nivel.Ajoelhado:
-                    h -= A.Ajoelhar * (r.Lado == LadoPortas ? 1f : Cfg.AjoelharOutroLado.Value) * (r.Dianteira ? 1f : Cfg.AjoelharTraseira.Value);
+                    h -= A.Ajoelhar * (r.Lado == LadoPortas ? 1f : Cfg.AjoelharOutroLado.Value) * (r.Eixo == 0 ? 1f : Cfg.AjoelharTraseira.Value);
                     break;
                 case Nivel.Elevado:
                     h += A.Elevar;
@@ -309,7 +354,7 @@ namespace SuspensaoAjustavel
                 float desceAqui = desce;
                 if (SemAr)
                 {
-                    float vazio = (r.Dianteira ? A.AlturaDianteira : A.AlturaTraseira) - Cfg.AlturaSemAr.Value;
+                    float vazio = A.Altura(r.Eixo) - Cfg.AlturaSemAr.Value;
                     if (r.Alvo > vazio || r.H > vazio) { r.Alvo = vazio; desceAqui = Cfg.VelocidadeSemAr.Value; }
                 }
                 // A válvula fecha suave perto do alvo (constante de 0,15 s) e no meio do caminho
@@ -375,12 +420,16 @@ namespace SuspensaoAjustavel
 
         // ---------------- leitura para painel / diagnóstico ----------------
 
-        internal static float Frequencia(bool dianteira)
+        // Nome do eixo para o painel e o diagnóstico.
+        internal static string NomeEixo(int eixo) =>
+            Eixos.Count <= 1 ? "único" : eixo == 0 ? "dianteira" : eixo == Eixos.Count - 1 ? "traseira" : $"meio {eixo + 1}";
+
+        internal static float Frequencia(int eixo)
         {
             double soma = 0; int n = 0;
             foreach (var r in Rodas)
             {
-                if (r.Dianteira != dianteira || r.W == null || r.W.WasCollected) continue;
+                if (r.Eixo != eixo || r.W == null || r.W.WasCollected) continue;
                 var wc = r.W.m_wheelCollider;
                 if (wc == null) continue;
                 float m = wc.sprungMass, k = r.W.effectiveSpringRate;
@@ -405,16 +454,16 @@ namespace SuspensaoAjustavel
             sb.AppendLine($"Ônibus: {Onibus}  estado: {Estado}  pronto: {Pronto}");
             sb.AppendLine($"Nível: {Pedido} (automático {Automatico})  kmh {Kmh:0.0}  lado portas {LadoPortas}  porta aberta {PortaAberta}  portas {_portas.Count}");
             sb.AppendLine($"Pressão {Pressao:0.00} bar  compressor {Compressor}  motor {(_ctrl != null && _ctrl.motorLigado)}");
-            sb.AppendLine($"Ajustes: diant {A.AlturaDianteira * 1000:0} mm, tras {A.AlturaTraseira * 1000:0} mm, ajoelhar {A.Ajoelhar * 1000:0} mm, elevar {A.Elevar * 1000:0} mm, rigidez {A.Rigidez:0.00}, amort {A.Amortecimento:0.00}");
-            sb.AppendLine($"Frequência natural: dianteira {Frequencia(true):0.00} Hz, traseira {Frequencia(false):0.00} Hz");
+            sb.AppendLine($"Ajustes: {string.Join(" · ", A.Alturas.Select((v, i) => $"eixo {i + 1} {v * 1000:0} mm"))}, ajoelhar {A.Ajoelhar * 1000:0} mm, elevar {A.Elevar * 1000:0} mm, rigidez {A.Rigidez:0.00}, amort {A.Amortecimento:0.00}");
+            sb.AppendLine("Frequência natural: " + string.Join(", ", Eixos.Select((e, i) => $"{NomeEixo(i)} {Frequencia(i):0.00} Hz")));
             sb.AppendLine($"Caixa da cabine (local do corpo): {Caixa}  câmera dentro: {Dentro()}");
-            sb.AppendLine("roda | diant | lado | z | H mm | alvo mm | taxa mm/s | center orig | center atual | mola orig/atual/efetiva | amort | massa susp | travel | anchor | y mundo");
+            sb.AppendLine("roda | eixo | lado | z | H mm | alvo mm | taxa mm/s | center orig | center atual | mola orig/atual/efetiva | amort | massa susp | travel | anchor | y mundo");
             foreach (var r in Rodas)
             {
                 if (r.W == null || r.W.WasCollected) { sb.AppendLine("(destruída)"); continue; }
                 var w = r.W; var wc = w.m_wheelCollider;
                 sb.AppendLine(string.Format(ci, "{0} | {1} | {2} | {3:0.00} | {4:0.0} | {5:0.0} | {6:0.0} | {7} | {8} | {9:0}/{10:0}/{11:0} | {12:0} | {13:0} | {14:0.000} | {15:0.00} | {16:0.0000}",
-                    w.name, r.Dianteira, r.Lado, r.Z, r.H * 1000, r.Alvo * 1000, r.Taxa * 1000, V(r.CentroOrig), V(w.center),
+                    w.name, r.Eixo + 1, r.Lado, r.Z, r.H * 1000, r.Alvo * 1000, r.Taxa * 1000, V(r.CentroOrig), V(w.center),
                     r.MolaOrig, w.springRate, w.effectiveSpringRate, w.damperRate, wc != null ? wc.sprungMass : -1f,
                     w.suspensionDistance, w.suspensionAnchor, w.transform.position.y));
             }

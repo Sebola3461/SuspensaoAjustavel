@@ -5,7 +5,7 @@ Suspensão ajustável a ar para os ônibus do Proton Bus Simulator.
 - **Ajoelhar:** baixa o lado das portas para o embarque. Liga sozinho quando o ônibus está parado com a porta aberta,
   se a opção `AutoAjoelhar` estiver ativa.
 - **Elevar:** sobe o ônibus para passar em valetas e lombadas.
-- **Altura e rigidez por ônibus:** salvas em `UserData/SuspensaoAjustavel/<ônibus>.txt`.
+- **Altura por eixo (par de bolsas) e rigidez por ônibus:** cada eixo — dianteiro, do meio (articulados e biarticulados) e traseiro — tem a sua altura, salva em `UserData/SuspensaoAjustavel/<ônibus>.txt`.
 - **Reservatório de ar:** é o mesmo do freio e das portas, simulado pela PBSLoaderCommonUtils. Sem a simulação de ar dela, a
   SuspensaoAjustavel usa um reservatório próprio, que também só enche com o motor ligado.
 - **Sem ar:** abaixo de 4,5 bar, as bolsas vão murchando devagar até o ônibus sentar no batente (`AlturaSemAr`,

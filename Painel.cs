@@ -76,7 +76,7 @@ namespace SuspensaoAjustavel
             var ev = Event.current;
             var a = Suspensao.A;
             float w = 440f, x0 = 24f, y0 = 24f, x = x0 + 20f, cw = w - 40f;
-            float h = Mathf.Min(14f + 28f + 24f + 36f + 34f + 128f + 40f + 6 * 30f + 30f + 34f + 70f, Screen.height - 48f);
+            float h = Mathf.Min(14f + 28f + 24f + 36f + 34f + 128f + 40f + (Suspensao.Eixos.Count + 4) * 30f + 30f + 34f + 70f, Screen.height - 48f);
             var janela = new Rect(x0, y0, w, h);
             Caixa(janela, _fundo);
             Caixa(new Rect(janela.x, janela.y, 4f, h), _destaque);
@@ -133,26 +133,31 @@ namespace SuspensaoAjustavel
                 : Suspensao.Compressor ? "compressor enchendo" : (Suspensao.Ctrl != null && Suspensao.Ctrl.motorLigado ? "compressor parado" : "motor desligado: sem compressor"), _fraco);
             y += 20f;
 
-            // Ajustes do ônibus.
-            y = Deslizante(0, x, y, cw, "Altura dianteira", a.AlturaDianteira * 1000f, -100f, 100f, 0f, Mm,
-                v => { a.AlturaDianteira = Mathf.Round(v) / 1000f; Suspensao.Sujar(); }, ev, "Altura de rodagem do eixo dianteiro em relação ao original do ônibus.");
-            y = Deslizante(1, x, y, cw, "Altura traseira", a.AlturaTraseira * 1000f, -100f, 100f, 0f, Mm,
-                v => { a.AlturaTraseira = Mathf.Round(v) / 1000f; Suspensao.Sujar(); }, ev, "Altura de rodagem dos eixos de trás.");
-            y = Deslizante(2, x, y, cw, "Ajoelhamento", a.Ajoelhar * 1000f, 20f, 120f, 20f, v => v.ToString("0") + " mm",
+            // Ajustes do ônibus: um deslizante por eixo (par de bolsas).
+            for (int e = 0; e < Suspensao.Eixos.Count; e++)
+            {
+                int eixo = e;
+                string nome = Suspensao.NomeEixo(eixo);
+                y = Deslizante(eixo, x, y, cw, "Altura " + nome, a.Altura(eixo) * 1000f, -100f, 100f, 0f, Mm,
+                    v => { a.DefinirAltura(eixo, Mathf.Round(v) / 1000f); Suspensao.Sujar(); }, ev,
+                    eixo == 0 ? "Altura de rodagem do eixo dianteiro em relação ao original do ônibus."
+                    : eixo == Suspensao.Eixos.Count - 1 ? "Altura de rodagem do último eixo."
+                    : "Altura de rodagem deste eixo do meio.");
+            }
+            y = Deslizante(100, x, y, cw, "Ajoelhamento", a.Ajoelhar * 1000f, 20f, 120f, 20f, v => v.ToString("0") + " mm",
                 v => { a.Ajoelhar = Mathf.Round(v) / 1000f; Suspensao.Sujar(); }, ev, "Quanto o lado das portas baixa ao ajoelhar. Real: 60 a 90 mm.");
-            y = Deslizante(3, x, y, cw, "Elevação", a.Elevar * 1000f, 20f, 120f, 20f, v => v.ToString("0") + " mm",
+            y = Deslizante(101, x, y, cw, "Elevação", a.Elevar * 1000f, 20f, 120f, 20f, v => v.ToString("0") + " mm",
                 v => { a.Elevar = Mathf.Round(v) / 1000f; Suspensao.Sujar(); }, ev, "Quanto o ônibus sobe ao elevar. Real: 50 a 80 mm.");
-            y = Deslizante(4, x, y, cw, "Rigidez", a.Rigidez, 0.5f, 2f, 1f, v => (v * 100f).ToString("0") + "%",
+            y = Deslizante(102, x, y, cw, "Rigidez", a.Rigidez, 0.5f, 2f, 1f, v => (v * 100f).ToString("0") + "%",
                 v => { a.Rigidez = Mathf.Round(v * 100f) / 100f; Suspensao.Sujar(); }, ev, "Mola em relação ao ônibus original. Mais pressão na bolsa = mais firme.");
-            y = Deslizante(5, x, y, cw, "Amortecimento", a.Amortecimento, 0.5f, 2f, 1f, v => (v * 100f).ToString("0") + "%",
+            y = Deslizante(103, x, y, cw, "Amortecimento", a.Amortecimento, 0.5f, 2f, 1f, v => (v * 100f).ToString("0") + "%",
                 v => { a.Amortecimento = Mathf.Round(v * 100f) / 100f; Suspensao.Sujar(); }, ev, "Amortecedor em relação ao original. Pouco = balança e quica; muito = seco.");
-            float fd = Suspensao.Frequencia(true), ft = Suspensao.Frequencia(false);
             var rf = new Rect(x + 2f, y, cw, 24f);
-            GUI.Label(rf, $"Frequência natural: dianteira {fd:0.00} Hz · traseira {ft:0.00} Hz", _fraco);
+            GUI.Label(rf, "Frequência natural: " + string.Join(" · ", Suspensao.Eixos.Select((ax, i) => $"{Suspensao.NomeEixo(i)} {Suspensao.Frequencia(i):0.00} Hz")), _fraco);
             if (rf.Contains(ev.mousePosition)) _dica = "Ônibus com bolsa de ar costumam ficar perto de 1,0 a 1,5 Hz; com feixe de molas, acima de 1,8 Hz.";
             y += 30f;
 
-            if (GUI.Button(new Rect(x, y, bw, 28f), "ZERAR", _botao)) { Suspensao.A = new Ajustes(); Suspensao.Sujar(); }
+            if (GUI.Button(new Rect(x, y, bw, 28f), "ZERAR", _botao)) { Suspensao.A = new Ajustes(); Suspensao.A.Garantir(Suspensao.Eixos.Count); Suspensao.Sujar(); }
             Rodape(janela);
         }
 
